@@ -6,6 +6,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:servora/screens/vendor/vendor_accepted_batches_screen.dart';
 import 'package:servora/screens/vendor/vendor_batch_details_screen.dart';
+import 'package:servora/screens/workers/worker_wallet_screen.dart';
 import 'package:servora/widgets/servora_logo.dart';
 
 import 'package:servora/screens/notification_screen.dart';
@@ -15,6 +16,7 @@ import 'package:servora/screens/workers/worker_active_jobs_screen.dart';
 import 'package:servora/screens/workers/worker_profile_setup.dart';
 
 import 'package:servora/screens/workers/worker_urgent_jobs_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:servora/screens/vendor/vendor_service_batches_screen.dart';
 
 class WorkerHome extends StatefulWidget {
@@ -25,6 +27,8 @@ class WorkerHome extends StatefulWidget {
 }
 
 class _WorkerHomeState extends State<WorkerHome> {
+
+  final user = FirebaseAuth.instance.currentUser;
   final User? currentUser = FirebaseAuth.instance.currentUser;
 
   final DatabaseReference servicesRef =
@@ -55,6 +59,7 @@ class _WorkerHomeState extends State<WorkerHome> {
   @override
   void initState() {
     super.initState();
+      debugPrint("LOGGED IN USER UID: ${currentUser?.uid}");
 
     loadWorker();
   }
@@ -1396,13 +1401,24 @@ class _WorkerHomeState extends State<WorkerHome> {
           // PROFILE
           // ==================================================
 
-          case 4:
+          case 5:
             Navigator.push(
               context,
               MaterialPageRoute(
                 builder:
                     (context) =>
                         const WorkerProfileSetup(),
+              ),
+            );
+
+            break;
+            case 4:
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder:
+                    (context) =>
+                        const WorkerWalletScreen(),
               ),
             );
 
@@ -1430,11 +1446,16 @@ class _WorkerHomeState extends State<WorkerHome> {
           icon: Icon(Icons.work),
           label: "Active",
         ),
+           BottomNavigationBarItem(
+          icon: Icon(Icons.account_balance_wallet_outlined),
+          label: "My Wallet",
+        ),
 
         BottomNavigationBarItem(
           icon: Icon(Icons.person),
           label: "Profile",
         ),
+     
       ],
     );
   }

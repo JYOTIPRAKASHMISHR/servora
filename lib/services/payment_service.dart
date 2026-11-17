@@ -1,46 +1,19 @@
+
 import 'package:flutter/foundation.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'payment_api_service.dart';
-/// ===============================================================
-/// SERVORA PAYMENT SERVICE
-/// ===============================================================
-///
-/// This class handles the Flutter-side Razorpay Checkout.
-///
-/// IMPORTANT:
-/// - Do NOT put Razorpay Secret Key here.
-/// - Only Razorpay Key ID belongs in the Flutter app.
-/// - Razorpay Order ID must be created by your backend.
-/// - Payment signature must be verified by your backend.
-///
+
 class PaymentService {
-
-  // =============================================================
-  // RAZORPAY INSTANCE
-  // =============================================================
-
   final Razorpay _razorpay = Razorpay();
-
   final PaymentApiService _paymentApiService = PaymentApiService();
 
-
-  // =============================================================
-  // CALLBACKS
-  // =============================================================
+  String? _currentServiceId;
 
   Function(PaymentSuccessResponse response)? onPaymentSuccess;
-
   Function(PaymentFailureResponse response)? onPaymentError;
-
   Function(ExternalWalletResponse response)? onExternalWallet;
 
-
-  // =============================================================
-  // INITIALIZE
-  // =============================================================
-
   PaymentService() {
-
     _razorpay.on(
       Razorpay.EVENT_PAYMENT_SUCCESS,
       _handlePaymentSuccess,
@@ -57,290 +30,130 @@ class PaymentService {
     );
   }
 
-
-  // =============================================================
-  // OPEN RAZORPAY CHECKOUT
-  // =============================================================
-
   void openCheckout({
-
     required String keyId,
-
     required int amountInPaise,
-
     required String orderId,
-
+    required String serviceId,
     String? customerName,
-
     String? customerEmail,
-
     String? customerPhone,
-
-    String description = "Servora Service Payment",
-
+    String description = 'Servora Service Payment',
   }) {
-
-    // -----------------------------------------------------------
-    // RAZORPAY CHECKOUT OPTIONS
-    // -----------------------------------------------------------
+    _currentServiceId = serviceId;
 
     final Map<String, dynamic> options = {
-
-      // Razorpay Key ID
-      "key": keyId,
-
-
-      // Amount must be in paise.
-      //
-      // Example:
-      // ₹699 = 69900 paise
-      //
-      "amount": amountInPaise,
-
-
-      // Currency
-      "currency": "INR",
-
-
-      // Servora name
-      "name": "Servora",
-
-
-      // Payment description
-      "description": description,
-
-
-      // VERY IMPORTANT:
-      // This must come from your backend.
-      "order_id": orderId,
-
-
-      // Customer information
-      "prefill": {
-
-        "name": ?customerName,
-
-        "email": ?customerEmail,
-
-        "contact": ?customerPhone,
-
+      'key': keyId,
+      'amount': amountInPaise,
+      'currency': 'INR',
+      'name': 'Servora',
+      'description': description,
+      'order_id': orderId,
+      'prefill': {
+        if (customerName != null && customerName.isNotEmpty)
+          'name': customerName,
+        if (customerEmail != null && customerEmail.isNotEmpty)
+          'email': customerEmail,
+        if (customerPhone != null && customerPhone.isNotEmpty)
+          'contact': customerPhone,
       },
-
-
-      // Checkout theme
-      "theme": {
-
-        "color": "#2563EB",
-
+      'theme': {
+        'color': '#2563EB',
       },
-
-
-      // Allow customer to retry payment
-      "retry": {
-
-        "enabled": true,
-
-        "max_count": 4,
-
+      'retry': {
+        'enabled': true,
+        'max_count': 4,
       },
-
-
-      // Checkout timeout
-      "timeout": 300,
-
+      'timeout': 300,
     };
 
-
-    // -----------------------------------------------------------
-    // DEBUG
-    // -----------------------------------------------------------
-
-    debugPrint(
-      "========================================",
-    );
-
-    debugPrint(
-      "SERVORA PAYMENT",
-    );
-
-    debugPrint(
-      "Amount : ₹${amountInPaise / 100}",
-    );
-
-    debugPrint(
-      "Order ID : $orderId",
-    );
-
-    debugPrint(
-      "========================================",
-    );
-
-
-    // -----------------------------------------------------------
-    // OPEN RAZORPAY
-    // -----------------------------------------------------------
+    debugPrint('SERVORA PAYMENT');
+    debugPrint('Service ID: $serviceId');
+    debugPrint('Amount: ₹${amountInPaise / 100}');
+    debugPrint('Order ID: $orderId');
 
     try {
-
       _razorpay.open(options);
+    } catch (e) {
+      debugPrint('RAZORPAY OPEN ERROR: $e');
 
-    }
-
-    catch (e) {
-
-      debugPrint(
-        "RAZORPAY OPEN ERROR : $e",
-      );
-
-    }
-
-  }
-
-
-  // =============================================================
-  // PAYMENT SUCCESS
-  // =============================================================
-
- Future<void> _handlePaymentSuccess(
-  PaymentSuccessResponse response,
-) async {
-
-  debugPrint("PAYMENT SUCCESS");
-
-  try {
-
-    final verified =
-        await _paymentApiService.verifyPayment(
-      paymentId: response.paymentId ?? "",
-      orderId: response.orderId ?? "",
-      signature: response.signature ?? "",
-    );
-
-    if (verified) {
-
-      debugPrint("PAYMENT VERIFIED BY SERVER");
-
-      if (onPaymentSuccess != null) {
-        onPaymentSuccess!(response);
-      }
-
-    } else {
-
-      debugPrint("PAYMENT VERIFICATION FAILED");
-
-      if (onPaymentError != null) {
-        onPaymentError!(
-          PaymentFailureResponse(
-            0,
-            "Payment verification failed",
-            null,
-          ),
-        );
-      }
-    }
-
-  } catch (e) {
-
-    debugPrint(
-      "PAYMENT VERIFICATION ERROR",
-    );
-
-    if (onPaymentError != null) {
-      onPaymentError!(
+      onPaymentError?.call(
         PaymentFailureResponse(
           0,
-          "Payment verification error",
+          'Unable to open Razorpay Checkout',
           null,
         ),
       );
     }
   }
-}
-  // =============================================================
-  // PAYMENT ERROR
-  // =============================================================
 
-  void _handlePaymentError(
-      PaymentFailureResponse response,
-      ) {
+  Future<void> _handlePaymentSuccess(
+    PaymentSuccessResponse response,
+  ) async {
+    debugPrint('RAZORPAY CHECKOUT REPORTED SUCCESS');
 
-    debugPrint(
-      "========================================",
-    );
+    final serviceId = _currentServiceId;
 
-    debugPrint(
-      "PAYMENT FAILED",
-    );
+    if (serviceId == null || serviceId.isEmpty) {
+      debugPrint('PAYMENT ERROR: Service ID is missing');
 
-    debugPrint(
-      "Code : ${response.code}",
-    );
-
-    debugPrint(
-      "Message : ${response.message}",
-    );
-
-    debugPrint(
-      "========================================",
-    );
-
-
-    // Send result back to the screen
-    if (onPaymentError != null) {
-
-      onPaymentError!(
-        response,
+      onPaymentError?.call(
+        PaymentFailureResponse(
+          0,
+          'Service ID is missing',
+          null,
+        ),
       );
-
+      return;
     }
 
-  }
-
-
-  // =============================================================
-  // EXTERNAL WALLET
-  // =============================================================
-
-  void _handleExternalWallet(
-      ExternalWalletResponse response,
-      ) {
-
-    debugPrint(
-      "========================================",
-    );
-
-    debugPrint(
-      "EXTERNAL WALLET SELECTED",
-    );
-
-    debugPrint(
-      "Wallet : ${response.walletName}",
-    );
-
-    debugPrint(
-      "========================================",
-    );
-
-
-    if (onExternalWallet != null) {
-
-      onExternalWallet!(
-        response,
+    try {
+      final verified = await _paymentApiService.verifyPayment(
+        serviceId: serviceId,
+        paymentId: response.paymentId ?? '',
+        orderId: response.orderId ?? '',
+        signature: response.signature ?? '',
       );
 
-    }
+      if (verified) {
+        debugPrint('BACKEND SIGNATURE VERIFICATION PASSED');
+        onPaymentSuccess?.call(response);
+      } else {
+        debugPrint('BACKEND PAYMENT VERIFICATION FAILED');
 
+        onPaymentError?.call(
+          PaymentFailureResponse(
+            0,
+            'Payment could not be verified',
+            null,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('PAYMENT VERIFICATION ERROR: $e');
+
+      onPaymentError?.call(
+        PaymentFailureResponse(
+          0,
+          'Unable to verify payment with server',
+          null,
+        ),
+      );
+    }
   }
 
+  void _handlePaymentError(PaymentFailureResponse response) {
+    debugPrint('PAYMENT FAILED: ${response.message}');
+    onPaymentError?.call(response);
+  }
 
-  // =============================================================
-  // CLEAR RAZORPAY LISTENERS
-  // =============================================================
+  void _handleExternalWallet(ExternalWalletResponse response) {
+    debugPrint('EXTERNAL WALLET: ${response.walletName}');
+    onExternalWallet?.call(response);
+  }
 
   void dispose() {
-
     _razorpay.clear();
-
   }
-
 }
+

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:async';
+import 'package:flutter/services.dart';
 
 
 class LocationPickerScreen extends StatefulWidget {
@@ -50,66 +52,78 @@ extends State<LocationPickerScreen>{
 
   // GET CURRENT GPS LOCATION
 
-  Future<void> getCurrentLocation() async{
-
-
+ 
+Future<void> getCurrentLocation() async {
+  try {
     bool serviceEnabled =
-    await Geolocator.isLocationServiceEnabled();
+        await Geolocator.isLocationServiceEnabled();
 
-
-    if(!serviceEnabled){
-
+    if (!serviceEnabled) {
+      if (!mounted) return;
+      setState(() => isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enable location services.'),
+        ),
+      );
       return;
-
     }
-
-
 
     LocationPermission permission =
-    await Geolocator.checkPermission();
+        await Geolocator.checkPermission();
 
-
-
-    if(permission ==
-        LocationPermission.denied){
-
-
-      permission =
-      await Geolocator.requestPermission();
-
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
     }
 
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      if (!mounted) return;
+      setState(() => isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Location permission is required.'),
+        ),
+      );
+      return;
+    }
 
-
-    Position position =
-    await Geolocator.getCurrentPosition(
-      desiredAccuracy:
-      LocationAccuracy.high,
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 15),
+      ),
     );
 
+    if (!mounted) return;
 
+    final location = LatLng(
+      position.latitude,
+      position.longitude,
+    );
 
-    setState((){
-
-
-      selectedLocation =
-          LatLng(
-              position.latitude,
-              position.longitude
-          );
-
-
-      isLoading=false;
-
-
+    setState(() {
+      selectedLocation = location;
+      isLoading = false;
     });
 
+    await getAddress(location);
+  } catch (e) {
+    debugPrint('Unable to get current location: $e');
 
+    if (!mounted) return;
 
-    getAddress(selectedLocation!);
+    setState(() => isLoading = false);
 
-
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Could not get your location. Check GPS and permissions.',
+        ),
+      ),
+    );
   }
+}
 
 
 
@@ -117,38 +131,73 @@ extends State<LocationPickerScreen>{
 
   // GET ADDRESS FROM LAT LNG
 
-  Future<void> getAddress(
-      LatLng position
-      ) async{
 
 
-    List<Placemark> places =
-    await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude
+Future<void> getAddress(LatLng position) async {
+  if (!mounted) return;
+
+  try {
+    final places = await placemarkFromCoordinates(
+      position.latitude,
+      position.longitude,
     );
 
+    if (!mounted) return;
 
-    Placemark place =
-    places.first;
+    if (places.isEmpty) {
+      setState(() {
+        address = '';
+      });
+      debugPrint('No readable address returned.');
+      return;
+    }
 
+    final place = places.first;
 
+    final parts = [
+      place.name,
+      place.street,
+      place.subLocality,
+      place.locality,
+      place.subAdministrativeArea,
+      place.administrativeArea,
+      place.postalCode,
+      place.country,
+    ]
+        .whereType<String>()
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList();
 
-    setState((){
+    // Remove repeated adjacent address components.
+    final uniqueParts = <String>[];
+    for (final part in parts) {
+      if (uniqueParts.isEmpty || uniqueParts.last != part) {
+        uniqueParts.add(part);
+      }
+    }
 
-
-      address =
-      "${place.street}, ${place.locality}, ${place.administrativeArea}";
-
-
+    setState(() {
+      address = uniqueParts.join(', ');
     });
+  } on PlatformException catch (e) {
+    debugPrint('Address lookup failed: ${e.message}');
 
+    if (!mounted) return;
 
+    setState(() {
+      address = '';
+    });
+  } catch (e) {
+    debugPrint('Unable to resolve address: $e');
+
+    if (!mounted) return;
+
+    setState(() {
+      address = '';
+    });
   }
-
-
-
-
+}
 
 
   // WHEN USER MOVES MAP
@@ -170,16 +219,23 @@ extends State<LocationPickerScreen>{
 
   // WHEN USER STOPS MOVING MAP
 
-  void onCameraIdle(){
+ 
+bool isGettingAddress = false;
 
-
-    if(selectedLocation!=null){
-
-      getAddress(selectedLocation!);
-
-    }
-
+Future<void> onCameraIdle() async {
+  if (selectedLocation == null || isGettingAddress) {
+    return;
   }
+
+  isGettingAddress = true;
+
+  try {
+    await getAddress(selectedLocation!);
+  } finally {
+    isGettingAddress = false;
+  }
+}
+
 
 
 

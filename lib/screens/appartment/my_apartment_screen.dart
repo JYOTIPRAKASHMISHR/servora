@@ -3547,17 +3547,15 @@ class _MyApartmentScreenState extends State<MyApartmentScreen> {
     required Map<String, dynamic> myData,
     required Map<String, dynamic> vendorData,
   }) {
-
     final currentUser = FirebaseAuth.instance.currentUser;
 
-  if (currentUser == null) {
-    return;
-  }
+    if (currentUser == null) {
+      return;
+    }
 
-  final userId = currentUser.uid;
+    final userId = currentUser.uid;
 
-  final serviceId =
-      batch["serviceId"]?.toString() ?? "";
+    final serviceId = batch["serviceId"]?.toString() ?? "";
     final vendorName =
         vendorData["name"]?.toString() ??
         vendorData["vendorName"]?.toString() ??
@@ -3913,16 +3911,16 @@ class _MyApartmentScreenState extends State<MyApartmentScreen> {
                   // OTP
                   // ==================================================
                   _buildWorkOtpCard(
-  workOtp: workOtp,
-  completionOtp: completionOtp,
-  isStarted: isStarted,
-  isCompleted: isCompleted,
-  amount: serviceAmount,
-  isPaid: isPaid,
-  apartmentKey: apartmentKey,
-  serviceId: serviceId,
-  userId: userId,
-),
+                    workOtp: workOtp,
+                    completionOtp: completionOtp,
+                    isStarted: isStarted,
+                    isCompleted: isCompleted,
+                    amount: serviceAmount,
+                    isPaid: isPaid,
+                    apartmentKey: apartmentKey,
+                    serviceId: serviceId,
+                    userId: userId,
+                  ),
                   const SizedBox(height: 18),
 
                   // ==================================================
@@ -4111,178 +4109,166 @@ class _MyApartmentScreenState extends State<MyApartmentScreen> {
   }
 
   Future<void> _startApartmentPayment({
-  required double amount,
-  required String apartmentKey,
-  required String serviceId,
-  required String userId,
-}) async {
-  try {
-    if (amount <= 0) {
+    required double amount,
+    required String apartmentKey,
+    required String serviceId,
+    required String userId,
+  }) async {
+    try {
+      if (amount <= 0) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Invalid payment amount."),
+            backgroundColor: Colors.red,
+          ),
+        );
+
+        return;
+      }
+
+      debugPrint("========================================");
+      debugPrint("APARTMENT PAYMENT START");
+      debugPrint("Amount: ₹$amount");
+      debugPrint("Apartment: $apartmentKey");
+      debugPrint("Service: $serviceId");
+      debugPrint("User: $userId");
+      debugPrint("========================================");
+
+      // ============================================================
+      // 1. CREATE RAZORPAY ORDER
+      // ============================================================
+
+      final orderData = await paymentApiService.createOrder(
+        serviceId: serviceId,
+      );
+
+      final orderId = orderData["id"]?.toString();
+
+      if (orderId == null || orderId.isEmpty) {
+        throw Exception("Razorpay Order ID not received.");
+      }
+
+      // ============================================================
+      // 2. PAYMENT SUCCESS CALLBACK
+      // ============================================================
+
+      paymentService.onPaymentSuccess = (response) async {
+        try {
+          debugPrint("========================================");
+          debugPrint("APARTMENT PAYMENT VERIFIED");
+          debugPrint("Payment ID: ${response.paymentId}");
+          debugPrint("Order ID: ${response.orderId}");
+          debugPrint("Signature: ${response.signature}");
+          debugPrint("========================================");
+
+          // ========================================================
+          // SAVE PAYMENT AGAINST THIS FLAT / PARTICIPANT
+          // ========================================================
+
+          final participantRef = _database
+              .child("societyServiceBatches")
+              .child(apartmentKey)
+              .child(serviceId)
+              .child("participants")
+              .child(userId);
+
+          await participantRef.update({
+            "paymentStatus": "paid",
+            "isPaid": true,
+            "paymentAmount": amount,
+            "paymentCurrency": "INR",
+            "paymentId": response.paymentId ?? "",
+            "paymentOrderId": response.orderId ?? orderId,
+            "paymentSignature": response.signature ?? "",
+            "paymentCompletedAt": ServerValue.timestamp,
+          });
+
+          debugPrint("APARTMENT PAYMENT SAVED SUCCESSFULLY");
+
+          if (!mounted) return;
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Payment completed successfully."),
+              backgroundColor: Colors.green,
+            ),
+          );
+
+          // Refresh screen data
+          setState(() {});
+        } catch (e) {
+          debugPrint("APARTMENT PAYMENT SAVE ERROR: $e");
+
+          if (!mounted) return;
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Payment verified, but payment details could not be saved.",
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      };
+
+      // ============================================================
+      // 3. PAYMENT ERROR CALLBACK
+      // ============================================================
+
+      paymentService.onPaymentError = (response) {
+        debugPrint("APARTMENT PAYMENT FAILED: ${response.message}");
+
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(response.message ?? "Payment failed."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      };
+
+      // ============================================================
+      // 4. OPEN RAZORPAY
+      // ============================================================
+
+      final amountInPaise = (amount * 100).round();
+
+      paymentService.openCheckout(
+        keyId: "rzp_test_TSI2EhlZvprEF7",
+        amountInPaise: amountInPaise,
+        orderId: orderId,
+        serviceId: serviceId,
+        description: "Servora Apartment Service Payment",
+      );
+    } catch (e) {
+      debugPrint("APARTMENT PAYMENT ERROR: $e");
+
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Invalid payment amount."),
+          content: Text("Unable to start payment. Please try again."),
           backgroundColor: Colors.red,
         ),
       );
-
-      return;
     }
-
-    debugPrint("========================================");
-    debugPrint("APARTMENT PAYMENT START");
-    debugPrint("Amount: ₹$amount");
-    debugPrint("Apartment: $apartmentKey");
-    debugPrint("Service: $serviceId");
-    debugPrint("User: $userId");
-    debugPrint("========================================");
-
-    // ============================================================
-    // 1. CREATE RAZORPAY ORDER
-    // ============================================================
-
-    final orderData = await paymentApiService.createOrder(
-      amount: amount,
-    );
-
-    final orderId = orderData["id"]?.toString();
-
-    if (orderId == null || orderId.isEmpty) {
-      throw Exception("Razorpay Order ID not received.");
-    }
-
-    // ============================================================
-    // 2. PAYMENT SUCCESS CALLBACK
-    // ============================================================
-
-    paymentService.onPaymentSuccess = (response) async {
-      try {
-        debugPrint("========================================");
-        debugPrint("APARTMENT PAYMENT VERIFIED");
-        debugPrint("Payment ID: ${response.paymentId}");
-        debugPrint("Order ID: ${response.orderId}");
-        debugPrint("Signature: ${response.signature}");
-        debugPrint("========================================");
-
-        // ========================================================
-        // SAVE PAYMENT AGAINST THIS FLAT / PARTICIPANT
-        // ========================================================
-
-        final participantRef = _database
-            .child("societyServiceBatches")
-            .child(apartmentKey)
-            .child(serviceId)
-            .child("participants")
-            .child(userId);
-
-        await participantRef.update({
-          "paymentStatus": "paid",
-          "isPaid": true,
-          "paymentAmount": amount,
-          "paymentCurrency": "INR",
-          "paymentId": response.paymentId ?? "",
-          "paymentOrderId": response.orderId ?? orderId,
-          "paymentSignature": response.signature ?? "",
-          "paymentCompletedAt": ServerValue.timestamp,
-        });
-
-        debugPrint(
-          "APARTMENT PAYMENT SAVED SUCCESSFULLY",
-        );
-
-        if (!mounted) return;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Payment completed successfully.",
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
-
-        // Refresh screen data
-        setState(() {});
-      } catch (e) {
-        debugPrint(
-          "APARTMENT PAYMENT SAVE ERROR: $e",
-        );
-
-        if (!mounted) return;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Payment verified, but payment details could not be saved.",
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    };
-
-    // ============================================================
-    // 3. PAYMENT ERROR CALLBACK
-    // ============================================================
-
-    paymentService.onPaymentError = (response) {
-      debugPrint(
-        "APARTMENT PAYMENT FAILED: ${response.message}",
-      );
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            response.message ?? "Payment failed.",
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
-    };
-
-    // ============================================================
-    // 4. OPEN RAZORPAY
-    // ============================================================
-
-    final amountInPaise = (amount * 100).round();
-
-    paymentService.openCheckout(
-      keyId: "rzp_test_TSI2EhlZvprEF7",
-      amountInPaise: amountInPaise,
-      orderId: orderId,
-      description: "Servora Apartment Service Payment",
-    );
-  } catch (e) {
-    debugPrint(
-      "APARTMENT PAYMENT ERROR: $e",
-    );
-
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          "Unable to start payment. Please try again.",
-        ),
-        backgroundColor: Colors.red,
-      ),
-    );
   }
-}
-Widget _buildWorkOtpCard({
-  required String? workOtp,
-  required String? completionOtp,
-  required bool isStarted,
-  required bool isCompleted,
-  required double amount,
-  required bool isPaid,
-  required String apartmentKey,
-  required String serviceId,
-  required String userId,
-}) {
+
+  Widget _buildWorkOtpCard({
+    required String? workOtp,
+    required String? completionOtp,
+    required bool isStarted,
+    required bool isCompleted,
+    required double amount,
+    required bool isPaid,
+    required String apartmentKey,
+    required String serviceId,
+    required String userId,
+  }) {
     final hasWorkOtp = workOtp != null && workOtp.isNotEmpty;
 
     final hasCompletionOtp = completionOtp != null && completionOtp.isNotEmpty;
@@ -4526,15 +4512,15 @@ Widget _buildWorkOtpCard({
                     height: 52,
                     child: ElevatedButton.icon(
                       onPressed: isPaid
-    ? null
-    : () {
-        _startApartmentPayment(
-          amount: amount,
-          apartmentKey: apartmentKey,
-          serviceId: serviceId,
-          userId: userId,
-        );
-      },
+                          ? null
+                          : () {
+                              _startApartmentPayment(
+                                amount: amount,
+                                apartmentKey: apartmentKey,
+                                serviceId: serviceId,
+                                userId: userId,
+                              );
+                            },
                       icon: Icon(
                         isPaid
                             ? Icons.check_circle_rounded
@@ -5673,30 +5659,38 @@ Widget _buildWorkOtpCard({
                                   height: 52,
                                   child: ElevatedButton.icon(
                                     onPressed: isPaid || serviceAmount <= 0
-    ? null
-    : () {
-        final currentUser = FirebaseAuth.instance.currentUser;
+                                        ? null
+                                        : () {
+                                            final currentUser = FirebaseAuth
+                                                .instance
+                                                .currentUser;
 
-        if (currentUser == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Please login again to make payment."),
-              backgroundColor: Colors.red,
-            ),
-          );
-          return;
-        }
+                                            if (currentUser == null) {
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text(
+                                                    "Please login again to make payment.",
+                                                  ),
+                                                  backgroundColor: Colors.red,
+                                                ),
+                                              );
+                                              return;
+                                            }
 
-        final serviceId =
-            batch["serviceId"]?.toString() ?? "";
+                                            final serviceId =
+                                                batch["serviceId"]
+                                                    ?.toString() ??
+                                                "";
 
-        _startApartmentPayment(
-          amount: serviceAmount,
-          apartmentKey: apartmentKey,
-          serviceId: serviceId,
-          userId: currentUser.uid,
-        );
-      },
+                                            _startApartmentPayment(
+                                              amount: serviceAmount,
+                                              apartmentKey: apartmentKey,
+                                              serviceId: serviceId,
+                                              userId: currentUser.uid,
+                                            );
+                                          },
                                     icon: Icon(
                                       isPaid
                                           ? Icons.check_circle

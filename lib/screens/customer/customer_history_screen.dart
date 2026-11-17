@@ -66,121 +66,133 @@ class _CustomerHistoryScreenState extends State<CustomerHistoryScreen> {
   // LISTEN HISTORY
   // ============================================================
 
-  void listenHistory() {
-    subscription?.cancel();
+ 
+void listenHistory() {
+  subscription?.cancel();
 
-    if (currentUser == null) {
-      if (mounted) {
+  final user = FirebaseAuth.instance.currentUser;
+
+  if (user == null) {
+    debugPrint('HISTORY ERROR: No authenticated Firebase user.');
+
+    if (!mounted) return;
+
+    setState(() {
+      services = [];
+      loading = false;
+    });
+    return;
+  }
+
+  debugPrint('HISTORY: Current UID = ${user.uid}');
+
+  setState(() {
+    loading = true;
+  });
+
+  subscription = servicesRef.onValue.listen(
+    (event) {
+      final snapshot = event.snapshot;
+
+      debugPrint('HISTORY: Snapshot exists = ${snapshot.exists}');
+
+      if (!snapshot.exists || snapshot.value == null) {
+        debugPrint('HISTORY: No records found at /services');
+
+        if (!mounted) return;
+
         setState(() {
           services = [];
           loading = false;
         });
+        return;
       }
 
-      return;
-    }
+      final rawData = snapshot.value;
 
-    setState(() {
-      loading = true;
-    });
-
-    subscription = servicesRef.onValue.listen(
-      (event) {
-        if (!event.snapshot.exists ||
-            event.snapshot.value == null) {
-          if (!mounted) return;
-
-          setState(() {
-            services = [];
-            loading = false;
-          });
-
-          return;
-        }
-
-        final rawData = event.snapshot.value;
-
-        if (rawData is! Map) {
-          if (!mounted) return;
-
-          setState(() {
-            services = [];
-            loading = false;
-          });
-
-          return;
-        }
-
-        final Map<dynamic, dynamic> data =
-            Map<dynamic, dynamic>.from(rawData);
-
-        final List<Map<String, dynamic>> temp = [];
-
-        data.forEach((key, value) {
-          if (value is! Map) {
-            return;
-          }
-
-          final Map<String, dynamic> service =
-              Map<String, dynamic>.from(value);
-
-          final String customerId =
-              service["customerId"]?.toString() ?? "";
-
-          final String status =
-              service["status"]?.toString().toLowerCase() ?? "";
-
-          final bool belongsToCurrentUser =
-              customerId == currentUser!.uid;
-
-          final bool isHistoryStatus =
-              status == "assigned" ||
-              status == "started" ||
-              status == "completed" ||
-              status == "confirmed";
-
-          if (belongsToCurrentUser && isHistoryStatus) {
-            temp.add({
-              "serviceId": key.toString(),
-              ...service,
-            });
-          }
-        });
-
-        temp.sort((a, b) {
-          final dynamic dateA = a["createdAt"];
-          final dynamic dateB = b["createdAt"];
-
-          final int aValue =
-              int.tryParse(dateA?.toString() ?? "") ?? 0;
-
-          final int bValue =
-              int.tryParse(dateB?.toString() ?? "") ?? 0;
-
-          return bValue.compareTo(aValue);
-        });
+      if (rawData is! Map) {
+        debugPrint('HISTORY ERROR: /services is not a map.');
 
         if (!mounted) return;
 
         setState(() {
-          services = temp;
+          services = [];
           loading = false;
         });
-      },
-      onError: (error) {
-        if (!mounted) return;
+        return;
+      }
 
-        setState(() {
-          loading = false;
-        });
+      final List<Map<String, dynamic>> temp = [];
 
-        _showMessage(
-          "Unable to load service history.",
-          isError: true,
+      for (final entry in rawData.entries) {
+        final key = entry.key.toString();
+        final value = entry.value;
+
+        if (value is! Map) continue;
+
+        final service = Map<String, dynamic>.from(value);
+
+        final customerId =
+            service['customerId']?.toString() ?? '';
+
+        final status =
+            service['status']?.toString() ?? 'unknown';
+
+        debugPrint(
+          'HISTORY RECORD: id=$key, '
+          'customerId=$customerId, '
+          'status=$status',
         );
-      },
-    );
-  }
+
+        // Only display services belonging to this customer.
+        if (customerId != user.uid) {
+          continue;
+        }
+
+        temp.add({
+          ...service,
+          'serviceId': key,
+        });
+      }
+
+      temp.sort((a, b) {
+        final aDate =
+            int.tryParse('${a['createdAt'] ?? ''}') ?? 0;
+        final bDate =
+            int.tryParse('${b['createdAt'] ?? ''}') ?? 0;
+
+        return bDate.compareTo(aDate);
+      });
+
+      debugPrint(
+        'HISTORY RESULT: ${temp.length} services '
+        'matched UID ${user.uid}',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        services = temp;
+        loading = false;
+      });
+    },
+    onError: (Object error, StackTrace stackTrace) {
+      debugPrint('HISTORY FIREBASE ERROR: $error');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      setState(() {
+        loading = false;
+      });
+
+      _showMessage(
+        'Unable to load service history. Check Firebase access.',
+        isError: true,
+      );
+    },
+  );
+}
 
   // ============================================================
   // BUILD
